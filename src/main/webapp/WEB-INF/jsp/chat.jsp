@@ -89,9 +89,13 @@
     </div>
 
     <form method="post" action="${pageContext.request.contextPath}/chat">
-        <input type="text" name="message" placeholder="Type your message..." required autocomplete="off" />
+        <input type="text" name="message" placeholder="Type your message..."  autocomplete="off" />
         <button type="submit">Send</button>
         <button type="submit" formaction="${pageContext.request.contextPath}/clear" formmethod="post" class="secondary">Clear</button>
+    </form>
+        <form method="post" action="${pageContext.request.contextPath}/perp/chat">
+        <input type="text" name="message" placeholder="Type your message..."  autocomplete="off" />
+        <button type="submit">Send to perplexity</button>
     </form>
 </div>
 

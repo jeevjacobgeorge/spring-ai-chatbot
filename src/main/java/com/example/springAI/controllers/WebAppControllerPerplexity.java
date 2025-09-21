@@ -9,38 +9,28 @@ import jakarta.servlet.http.HttpSession;
 import org.springframework.ai.azure.openai.AzureOpenAiChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
-@Controller("/azure")
-public class WebAppController {
+@Controller("")
+public class WebAppControllerPerplexity {
 
-    private final AzureOpenAiChatModel chatModel;
+    private final OpenAiChatModel  chatModel;
     private static final DateTimeFormatter TF = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Autowired
-    public WebAppController(AzureOpenAiChatModel chatModel) {
+    public WebAppControllerPerplexity(OpenAiChatModel  chatModel) {
         this.chatModel = chatModel;
     }
 
-    @GetMapping("/")
-    public String home(Model model, HttpSession session) {
-        // ensure model has chatHistory for immediate rendering
-        @SuppressWarnings("unchecked")
-        List<Map<String, String>> history = (List<Map<String, String>>) session.getAttribute("chatHistory");
-        if (history == null) {
-            history = new ArrayList<>();
-            session.setAttribute("chatHistory", history);
-        }
-        model.addAttribute("chatHistory", history);
-        return "chat";
-    }
+    
 
-    @PostMapping("/chat")
-    public String chat(@RequestParam("message") String message, HttpSession session, Model model) {
+    @PostMapping("/perp/chat")
+    public String prepChat(@RequestParam("message") String message, HttpSession session, Model model) {
         // call AI (synchronous)
         Prompt prompt = new Prompt(new UserMessage(message));
         ChatResponse aiChatResponse = chatModel.call(prompt);
@@ -73,9 +63,5 @@ public class WebAppController {
         return "chat"; // render JSP with history
     }
 
-    @PostMapping("/clear")
-    public String clear(HttpSession session) {
-        session.removeAttribute("chatHistory");
-        return "redirect:/";
-    }
+  
 }
