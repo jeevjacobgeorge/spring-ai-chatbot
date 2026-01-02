@@ -6,7 +6,6 @@ import java.util.*;
 
 import jakarta.servlet.http.HttpSession;
 
-import org.springframework.ai.azure.openai.AzureOpenAiChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatModel;
