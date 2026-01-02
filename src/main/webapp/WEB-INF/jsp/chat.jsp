@@ -82,105 +82,201 @@
     </aside>
 </div>
 
-<script>
-    // auto-scroll to bottom of chatbox on page load
-    (function() {
-        var box = document.getElementById('chatbox');
-        if (box) {
-            box.scrollTop = box.scrollHeight;
-        }
-    })();
-</script>
-<!-- add to the bottom of `src/main/webapp/WEB-INF/jsp/chat.jsp` (before </body>) -->
-<script src="marked.min.js"></script>
-<script src="purify.min.js"></script>
+
 <!-- html -->
 <script>
+    // javascript
     (function() {
-        // async script loader
         function loadScript(src) {
             return new Promise(function(resolve, reject) {
                 var s = document.createElement('script');
                 s.src = src;
                 s.defer = true;
-                s.onload = function() { resolve(); };
+                s.onload = resolve;
                 s.onerror = function() { reject(new Error('Failed to load ' + src)); };
                 document.head.appendChild(s);
             });
         }
 
-        // render a single .model-content element if not already rendered
-        function renderNode(el, observer) {
-            if (!el || el.dataset.mdRendered === 'true') return;
-            var md = el.textContent || '';
-            if (!md.trim()) {
-                el.dataset.mdRendered = 'true';
+        var libsReady = false;
+        function renderMarkdownNode(el, text) {
+            if (!el) return;
+            var md = text || el.dataset.raw || el.textContent || '';
+
+            if (!libsReady) {
+                el.dataset.raw = md;
+                el.textContent = md;
                 return;
             }
+
             try {
-                if (observer) observer.disconnect(); // avoid observer reentrancy
                 var html = DOMPurify.sanitize(marked.parse(md));
                 el.innerHTML = html;
                 el.dataset.mdRendered = 'true';
+                delete el.dataset.raw;
             } catch (e) {
-                console.error('Markdown render error', e);
-            } finally {
-                if (observer) observer.observe(chatbox, { childList: true, subtree: true });
+                el.textContent = md;
+                console.error('Markdown render failed', e);
             }
         }
 
-        // render all existing nodes once libs are ready
-        function renderAll(observer) {
+
+        function renderAllUnrendered() {
             document.querySelectorAll('.model-content').forEach(function(el) {
-                renderNode(el, observer);
+                if (el.dataset.mdRendered !== 'true') {
+                    renderMarkdownNode(el, el.dataset.raw || el.textContent || '');
+                }
             });
         }
 
-        // wait for DOM ready, load libs, then set up observer + initial render
-        function init() {
-            var chatbox = document.getElementById('chatbox');
+        var chatbox = document.getElementById('chatbox');
+        function scrollToBottomIfNear() {
             if (!chatbox) return;
 
-            // MutationObserver processes only added nodes to minimize work
-            var observer = new MutationObserver(function(mutations) {
-                mutations.forEach(function(m) {
-                    m.addedNodes.forEach(function(node) {
-                        if (!node) return;
-                        if (node.nodeType !== Node.ELEMENT_NODE) return;
-                        // if a whole turn was added, render any .model-content inside it
-                        if (node.classList && node.classList.contains('model-content')) {
-                            renderNode(node, observer);
-                        } else {
-                            node.querySelectorAll && node.querySelectorAll('.model-content').forEach(function(el) {
-                                renderNode(el, observer);
-                            });
-                        }
-                    });
-                });
-            });
+            const threshold = 80; // px from bottom
+            const distanceFromBottom =
+                chatbox.scrollHeight - chatbox.clientHeight - chatbox.scrollTop;
 
-            // start observing and render what's already present
-            observer.observe(chatbox, { childList: true, subtree: true });
-            renderAll(observer);
+            if (distanceFromBottom < threshold) {
+                chatbox.scrollTop = chatbox.scrollHeight;
+            }
         }
 
-        // load libraries non-blocking and initialize
-        Promise.all([
-            loadScript('https://cdn.jsdelivr.net/npm/marked/marked.min.js'),
-            loadScript('https://cdn.jsdelivr.net/npm/dompurify@2.4.0/dist/purify.min.js')
-        ])
-            .then(function() {
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', init);
-                } else {
-                    init();
-                }
-            })
-            .catch(function(err) {
-                console.error('Failed to load Markdown libraries:', err);
-                // still attempt a best-effort render pass without libs (no-op)
+        if (!chatbox) return;
+        var observer = new MutationObserver(function(muts) {
+            muts.forEach(function(m) {
+                m.addedNodes.forEach(function(node) {
+                    if (!node || node.nodeType !== Node.ELEMENT_NODE) return;
+                    if (node.classList && node.classList.contains('model-content')) {
+                        renderMarkdownNode(node, node.dataset.raw || node.textContent || '');
+                    } else if (node.querySelectorAll) {
+                        node.querySelectorAll('.model-content').forEach(function(el) {
+                            renderMarkdownNode(el, el.dataset.raw || el.textContent || '');
+                        });
+                    }
+                });
             });
+        });
+        observer.observe(chatbox, { childList: true, subtree: true });
+
+        Promise.all([
+            loadScript('https://cdn.jsdelivr.net/npm/marked@5.1.1/marked.min.js'),
+            loadScript('https://cdn.jsdelivr.net/npm/dompurify@2.4.0/dist/purify.min.js')
+        ]).then(function() {
+            libsReady = true;
+            renderAllUnrendered();
+        }).catch(function(err) {
+            console.warn('Markdown libs failed to load from CDN:', err);
+        });
+
+        var form = document.querySelector('form.compose-form') || document.querySelector('form[action$="/chat"]');
+        if (!form) return;
+
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            var fd = new FormData(form);
+            var message = (fd.get('message') || '').toString();
+            if (!message.trim()) return;
+
+            var turn = document.createElement('div');
+            turn.className = 'turn';
+            var now = new Date().toLocaleString();
+            turn.innerHTML = '<div class="turn-top"><div class="user-line"></div><div class="meta">' + now + '</div></div>' +
+                '<div class="models">' +
+                '<div class="model"><div class="model-label">Azure</div><div class="model-content" data-target="azure"></div></div>' +
+                '<div class="model"><div class="model-label">OpenAI</div><div class="model-content" data-target="openai"></div></div>' +
+                '</div>';
+            chatbox.appendChild(turn);
+            scrollToBottomIfNear();
+
+            var azureNode = turn.querySelector('.model-content[data-target="azure"]');
+            var openaiNode = turn.querySelector('.model-content[data-target="openai"]');
+
+            azureNode.classList.add('typing');
+            openaiNode.classList.add('typing');
+
+            var streamUrl = (form.action || '').replace(/\/chat$/, '/stream') || (window.location.pathname.replace(/\/$/, '') + '/stream') || '/stream';
+
+            fetch(streamUrl, {
+                method: 'POST',
+                body: new URLSearchParams({ message: message }),
+                headers: { 'Accept': 'text/event-stream', 'Content-Type': 'application/x-www-form-urlencoded' }
+            }).then(function(res) {
+                if (!res.ok) throw new Error('stream request failed: ' + res.status);
+                if (!res.body) throw new Error('streaming not supported by this response');
+
+                var reader = res.body.getReader();
+                var decoder = new TextDecoder();
+                var buf = '';
+
+                function handleBlock(block) {
+                    var lines = block.split('\n');
+                    var event = 'message';
+                    var data = '';
+                    lines.forEach(function(ln) {
+                        if (ln.indexOf('event:') === 0) event = ln.slice(6).trim();
+                        else if (ln.indexOf('data:') === 0) data += ln.slice(5).trim() + '\n';
+                    });
+                    data = data.replace(/\n$/, '');
+                    if (event === 'typing-start') {
+                        // keep showing animation
+                    } else if (event === 'azure') {
+                        azureNode.classList.remove('typing');
+                        // accumulate raw content and render (will be a no-op until libsReady)
+                        azureNode.dataset.raw = (azureNode.dataset.raw || '') + data;
+                        azureNode.textContent = azureNode.dataset.raw;
+                        renderMarkdownNode(azureNode, azureNode.dataset.raw);
+                        scrollToBottomIfNear();
+                    } else if (event === 'openai') {
+                        openaiNode.classList.remove('typing');
+                        openaiNode.dataset.raw = (openaiNode.dataset.raw || '') + data;
+                        openaiNode.textContent = openaiNode.dataset.raw;
+                        renderMarkdownNode(openaiNode, openaiNode.dataset.raw);
+                    } else if (event === 'done') {
+                        scrollToBottomIfNear();
+                    } else if (event === 'error') {
+                        azureNode.classList.remove('typing');
+                        openaiNode.classList.remove('typing');
+                        azureNode.textContent = '[error]';
+                    }
+                }
+
+                function pushChunk(text) {
+                    buf += text;
+                    var parts = buf.split('\n\n');
+                    for (var i = 0; i < parts.length - 1; i++) {
+                        handleBlock(parts[i]);
+                    }
+                    buf = parts[parts.length - 1];
+                }
+
+                function readLoop() {
+                    reader.read().then(function(r) {
+                        if (r.done) {
+                            if (buf.trim()) handleBlock(buf);
+                            return;
+                        }
+                        pushChunk(decoder.decode(r.value, { stream: true }));
+                        readLoop();
+                    }).catch(function(err) {
+                        console.error('Stream read error', err);
+                        azureNode.classList.remove('typing');
+                        openaiNode.classList.remove('typing');
+                    });
+                }
+
+                readLoop();
+            }).catch(function(err) {
+                console.error('Stream setup failed', err);
+                azureNode.classList.remove('typing');
+                openaiNode.classList.remove('typing');
+                azureNode.textContent = 'Failed to stream: ' + (err.message || err);
+            });
+
+            form.reset();
+        });
     })();
+
 </script>
 
 

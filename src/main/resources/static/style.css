@@ -43,3 +43,21 @@ body { font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvet
 
 /* accessibility */
 .sr-only { position:absolute; left:-9999px; top:auto; width:1px; height:1px; overflow:hidden; }
+/* typing animation for model content */
+.model-content.typing::after {
+    content: '';
+    display: inline-block;
+    width: 1.2em;
+    height: 0.8em;
+    margin-left: 8px;
+    vertical-align: middle;
+    background: radial-gradient(circle at 20% 50%, rgba(0,0,0,0.0) 0 30%, #9fb4d8 30% 40%, rgba(0,0,0,0.0) 40% 100%);
+    animation: dots 1s steps(3, end) infinite;
+    background-size: 300% 100%;
+    opacity: 0.9;
+}
+@keyframes dots {
+    0% { transform: translateX(0); }
+    50% { transform: translateX(0.3em); }
+    100% { transform: translateX(0); }
+}

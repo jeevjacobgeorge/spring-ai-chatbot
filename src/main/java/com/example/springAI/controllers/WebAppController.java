@@ -4,6 +4,8 @@ package com.example.springAI.controllers;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import jakarta.servlet.http.HttpSession;
 
@@ -13,9 +15,11 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Controller
 public class WebAppController {
@@ -95,5 +99,77 @@ public class WebAppController {
     public String clear(HttpSession session) {
         session.removeAttribute("chatHistory");
         return "redirect:/";
+    }
+    @PostMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream(@RequestParam("message") String message, HttpSession session) {
+        // no timeout (0L) or set a reasonable timeout in ms
+        final SseEmitter emitter = new SseEmitter(0L);
+        ExecutorService ex = Executors.newSingleThreadExecutor();
+
+        ex.submit(() -> {
+            try {
+                // send a typing-start event so the client can show an animation
+                emitter.send(SseEmitter.event().name("typing-start").data("start"));
+
+                Prompt prompt = new Prompt(new UserMessage(message));
+
+                // Call Azure then OpenAI (could be parallelized similarly)
+                // If the model library supports streaming callbacks, replace these calls
+                // with streaming sends (emitter.send(...) as chunks arrive).
+                ChatResponse azureResponse = azureModel.call(prompt);
+                String replyAzure = azureResponse.getResults().stream()
+                        .map(gen -> gen.getOutput())
+                        .filter(Objects::nonNull)
+                        .map(assistant -> assistant.getText())
+                        .filter(Objects::nonNull)
+                        .findFirst()
+                        .orElse("No response from Azure model");
+
+                // send azure full text (or incremental chunks if available)
+                emitter.send(SseEmitter.event().name("azure").data(replyAzure));
+
+                ChatResponse openAiResponse = openAiModel.call(prompt);
+                String replyOpenAi = openAiResponse.getResults().stream()
+                        .map(gen -> gen.getOutput())
+                        .filter(Objects::nonNull)
+                        .map(assistant -> assistant.getText())
+                        .filter(Objects::nonNull)
+                        .findFirst()
+                        .orElse("No response from OpenAI model");
+
+                emitter.send(SseEmitter.event().name("openai").data(replyOpenAi));
+
+                // persist the final history entry in session (so GET page shows it)
+                Object chatHistoryObj = session.getAttribute("chatHistory");
+                List<Map<String, String>> history;
+                if (chatHistoryObj instanceof List) {
+                    history = (List<Map<String, String>>) chatHistoryObj;
+                } else {
+                    history = new ArrayList<>();
+                    session.setAttribute("chatHistory", history);
+                }
+
+                String now = LocalDateTime.now().format(TF);
+                Map<String, String> turn = new HashMap<>();
+                turn.put("user", message);
+                turn.put("azure", replyAzure);
+                turn.put("openai", replyOpenAi);
+                turn.put("time", now);
+                history.add(turn);
+                session.setAttribute("chatHistory", history);
+
+                // inform client stream is finished
+                emitter.send(SseEmitter.event().name("done").data("ok"));
+                emitter.complete();
+            } catch (Exception exx) {
+                try {
+                    emitter.send(SseEmitter.event().name("error").data("server error"));
+                } catch (Exception ignore) {}
+                emitter.completeWithError(exx);
+            }
+        });
+
+        ex.shutdown();
+        return emitter;
     }
 }
